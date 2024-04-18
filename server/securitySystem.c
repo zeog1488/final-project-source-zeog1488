@@ -16,7 +16,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <sys/stat.h>
-#include <sys/ioctl.h>
+#include <termios.h>
 
 #define PORT 9000
 #define START_LEN 128
@@ -88,6 +88,10 @@ int main(int argc, char *argv[])
     socklen_t client_size;
     bool useDaemon;
     pid_t pid;
+    int serial_fd;
+    char tagBuf[16];
+    struct termios serial_port_settings;
+    int retval;
 
     struct timeval ts;
     ts.tv_sec = 0;
@@ -188,6 +192,49 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
+    serial_fd = open("/dev/ttyAMA0", O_RDONLY);
+    if (serial_fd < 0)
+    {
+        perror("open");
+        printf("Failed to open serial device\n");
+        exit(-1);
+    }
+
+    retval = tcgetattr(serial_fd, &serial_port_settings);
+    if (retval < 0)
+    {
+        perror("tcgetattr");
+        printf("Failed to get serial settings\n");
+        exit(-1);
+    }
+
+    // setting baud rate to B38400
+    retval = cfsetospeed(&serial_port_settings, B9600);
+    if (retval < 0)
+    {
+        perror("cfsetospeed");
+        printf("Failed to set 9600 output baud rate\n");
+        exit(-1);
+    }
+    retval = cfsetispeed(&serial_port_settings, B9600);
+    if (retval < 0)
+    {
+        perror("cftispeed");
+        printf("Failed to set 9600 input baud rate\n");
+        exit(-1);
+    }
+    serial_port_settings.c_lflag |= ICANON;
+    serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
+    serial_port_settings.c_cc[VMIN] = 0;
+    serial_port_settings.c_cc[VTIME] = 10;
+    retval = tcsetattr(socket_fd, TCSANOW, &serial_port_settings);
+    if (retval < 0)
+    {
+        perror("tcsetattr");
+        printf("Failed to set serial settings\n");
+        exit(-1);
+    }
+
     client_size = sizeof(client);
     while (exitRequested == 0)
     {
@@ -221,6 +268,14 @@ int main(int argc, char *argv[])
             ret = readFromSocket(conn_fd, cmdBuffer, cmdBufferLen);
             if (ret == 0)
             {
+                memset(tagBuf, 0, sizeof(tagBuf));
+                retval = read(serial_fd, tagBuf, sizeof(tagBuf));
+                if (retval > 0)
+                {
+                    char temp[] = "Tag received: ";
+                    write(conn_fd, temp, strlen(temp));
+                    write(conn_fd, tagBuf, sizeof(tagBuf));
+                }
                 continue;
             }
             else if (ret == -1)
