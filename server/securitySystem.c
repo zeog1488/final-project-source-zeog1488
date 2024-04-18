@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    serial_fd = open("/dev/ttyAMA0", O_RDONLY);
+    serial_fd = open("/dev/ttyAMA0", O_RDWR);
     if (serial_fd < 0)
     {
         perror("open");
@@ -227,7 +227,7 @@ int main(int argc, char *argv[])
     serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
     serial_port_settings.c_cc[VMIN] = 0;
     serial_port_settings.c_cc[VTIME] = 10;
-    retval = tcsetattr(socket_fd, TCSANOW, &serial_port_settings);
+    retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
     if (retval < 0)
     {
         perror("tcsetattr");
