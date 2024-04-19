@@ -16,6 +16,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 
 #define PORT 9000
@@ -92,6 +93,7 @@ int main(int argc, char *argv[])
     char tagBuf[16];
     struct termios serial_port_settings;
     int retval;
+    unsigned long bytes_av;
 
     struct timeval ts;
     ts.tv_sec = 0;
@@ -192,7 +194,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    serial_fd = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_SYNC);
+    serial_fd = open("/dev/ttyAMA0", O_RDWR);
     if (serial_fd < 0)
     {
         perror("open");
@@ -224,8 +226,8 @@ int main(int argc, char *argv[])
     }
     serial_port_settings.c_lflag &= ~(ICANON);
     serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
-    serial_port_settings.c_cc[VMIN] = 0;
-    serial_port_settings.c_cc[VTIME] = 3;
+    // serial_port_settings.c_cc[VMIN] = 0;
+    // serial_port_settings.c_cc[VTIME] = 0;
     retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
     if (retval < 0)
     {
@@ -268,13 +270,28 @@ int main(int argc, char *argv[])
             if (ret == 0)
             {
                 memset(tagBuf, 0, sizeof(tagBuf));
-                retval = read(serial_fd, tagBuf, sizeof(tagBuf));
-                if (retval > 0)
+                ioctl(serial_fd, FIONREAD, &bytes_av);
+                printf("Bytes: %lu\n", bytes_av);
+                usleep(50 * 1000L);
+
+                if (bytes_av >= 14)
                 {
-                    tcflush(serial_fd, TCIOFLUSH);
-                    char temp[] = "Tag received: ";
-                    write(conn_fd, temp, strlen(temp));
-                    write(conn_fd, tagBuf + 3, 8);
+                    retval = read(serial_fd, tagBuf, sizeof(tagBuf));
+                    if (retval > 0)
+                    {
+                        // if (retval < sizeof(tagBuf))
+                        // {
+                        //     printf("Here\n");
+                        //     printf("retval: %i\n", retval);
+                        //     retval = read(serial_fd, tagBuf + retval, sizeof(tagBuf) - retval);
+                        //     printf("retval: %i\n", retval);
+                        // }
+                        // tcflush(serial_fd, TCIOFLUSH);
+                        tagBuf[11] = '\n';
+                        char temp[] = "Tag received: ";
+                        write(conn_fd, temp, strlen(temp));
+                        write(conn_fd, tagBuf + 3, 8);
+                    }
                 }
                 continue;
             }
