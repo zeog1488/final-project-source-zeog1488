@@ -251,8 +251,8 @@ int main(int argc, char *argv[])
     // }
     // serial_port_settings.c_lflag &= ~(ICANON);
     // serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
-    serial_port_settings.c_cc[VMIN] = 0;
-    serial_port_settings.c_cc[VTIME] = 0;
+    // serial_port_settings.c_cc[VMIN] = 0;
+    // serial_port_settings.c_cc[VTIME] = 0;
     // retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
     // if (retval < 0)
     // {
@@ -299,25 +299,25 @@ int main(int argc, char *argv[])
                 // printf("Bytes: %lu\n", bytes_av);
                 // usleep(50 * 1000L);
 
-                if (bytes_av >= 14)
+                // if (bytes_av >= 14)
+                // {
+                retval = readBytesFromSerial(serial_fd, tagBuf, 14);
+                if (retval == 0)
                 {
-                    retval = readBytesFromSerial(serial_fd, tagBuf, 14);
-                    if (retval == 0)
-                    {
-                        // if (retval < sizeof(tagBuf))
-                        // {
-                        //     printf("Here\n");
-                        //     printf("retval: %i\n", retval);
-                        //     retval = read(serial_fd, tagBuf + retval, sizeof(tagBuf) - retval);
-                        //     printf("retval: %i\n", retval);
-                        // }
-                        tcflush(serial_fd, TCIOFLUSH);
-                        tagBuf[11] = '\n';
-                        char temp[] = "Tag received: ";
-                        write(conn_fd, temp, strlen(temp));
-                        write(conn_fd, tagBuf + 3, 8);
-                    }
+                    // if (retval < sizeof(tagBuf))
+                    // {
+                    //     printf("Here\n");
+                    //     printf("retval: %i\n", retval);
+                    //     retval = read(serial_fd, tagBuf + retval, sizeof(tagBuf) - retval);
+                    //     printf("retval: %i\n", retval);
+                    // }
+                    tcflush(serial_fd, TCIOFLUSH);
+                    tagBuf[11] = '\n';
+                    char temp[] = "Tag received: ";
+                    write(conn_fd, temp, strlen(temp));
+                    write(conn_fd, tagBuf + 3, 8);
                 }
+                // }
                 continue;
             }
             else if (ret == -1)
