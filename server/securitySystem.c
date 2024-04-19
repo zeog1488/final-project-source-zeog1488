@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
     serial_port_settings.c_lflag |= ICANON;
     serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
     serial_port_settings.c_cc[VMIN] = 0;
-    serial_port_settings.c_cc[VTIME] = 1;
+    serial_port_settings.c_cc[VTIME] = 3;
     retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
     if (retval < 0)
     {
@@ -270,12 +270,13 @@ int main(int argc, char *argv[])
             {
                 memset(tagBuf, 0, sizeof(tagBuf));
                 retval = read(serial_fd, tagBuf, sizeof(tagBuf));
+                printf("Here\n");
                 if (retval > 0)
                 {
                     tcflush(serial_fd, TCIOFLUSH);
                     char temp[] = "Tag received: ";
                     write(conn_fd, temp, strlen(temp));
-                    write(conn_fd, tagBuf + 1, 12);
+                    write(conn_fd, tagBuf + 3, 8);
                 }
                 continue;
             }
