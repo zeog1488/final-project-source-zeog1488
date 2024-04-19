@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    serial_fd = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_SYNC);
+    serial_fd = open("/dev/ttyAMA0", O_RDWR);
     if (serial_fd < 0)
     {
         perror("open");
@@ -270,7 +270,6 @@ int main(int argc, char *argv[])
             {
                 memset(tagBuf, 0, sizeof(tagBuf));
                 retval = read(serial_fd, tagBuf, sizeof(tagBuf));
-                printf("Here\n");
                 if (retval > 0)
                 {
                     tcflush(serial_fd, TCIOFLUSH);
