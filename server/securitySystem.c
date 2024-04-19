@@ -275,7 +275,7 @@ int main(int argc, char *argv[])
                     tcflush(serial_fd, TCIOFLUSH);
                     char temp[] = "Tag received: ";
                     write(conn_fd, temp, strlen(temp));
-                    write(conn_fd, tagBuf + 1, sizeof(12));
+                    write(conn_fd, tagBuf + 1, 12);
                 }
                 continue;
             }
