@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    serial_fd = open("/dev/ttyAMA0", O_RDWR);
+    serial_fd = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_SYNC);
     if (serial_fd < 0)
     {
         perror("open");
@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
     serial_port_settings.c_lflag |= ICANON;
     serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
     serial_port_settings.c_cc[VMIN] = 0;
-    serial_port_settings.c_cc[VTIME] = 10;
+    serial_port_settings.c_cc[VTIME] = 1;
     retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
     if (retval < 0)
     {
@@ -272,9 +272,10 @@ int main(int argc, char *argv[])
                 retval = read(serial_fd, tagBuf, sizeof(tagBuf));
                 if (retval > 0)
                 {
+                    tcflush(serial_fd, TCIOFLUSH);
                     char temp[] = "Tag received: ";
                     write(conn_fd, temp, strlen(temp));
-                    write(conn_fd, tagBuf, sizeof(tagBuf));
+                    write(conn_fd, tagBuf + 1, sizeof(12));
                 }
                 continue;
             }
