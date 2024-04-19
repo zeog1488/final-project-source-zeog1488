@@ -79,6 +79,31 @@ int readFromSocket(int conn_fd, char *buffer, int buflen)
     return buflen;
 }
 
+int readBytesFromSerial(const int fd, void *const buffer, size_t const bytes)
+{
+    char *head = (char *)buffer;
+    char *const tail = (char *)buffer + bytes;
+    int saved_errno;
+    ssize_t n;
+
+    saved_errno = errno;
+
+    while (head < tail)
+    {
+
+        n = read(fd, head, (size_t)(tail - head));
+        if (n > (ssize_t)0)
+            head += n;
+        else if (n != (ssize_t)-1)
+            return errno = ENOENT;
+        else if (errno != EINTR)
+            return errno;
+    }
+
+    errno = saved_errno;
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     int socket_fd;
@@ -202,40 +227,40 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    retval = tcgetattr(serial_fd, &serial_port_settings);
-    if (retval < 0)
-    {
-        perror("tcgetattr");
-        printf("Failed to get serial settings\n");
-        exit(-1);
-    }
-
-    retval = cfsetospeed(&serial_port_settings, B9600);
-    if (retval < 0)
-    {
-        perror("cfsetospeed");
-        printf("Failed to set 9600 output baud rate\n");
-        exit(-1);
-    }
-    retval = cfsetispeed(&serial_port_settings, B9600);
-    if (retval < 0)
-    {
-        perror("cftispeed");
-        printf("Failed to set 9600 input baud rate\n");
-        exit(-1);
-    }
-    serial_port_settings.c_lflag &= ~(ICANON);
-    serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
-    // serial_port_settings.c_cc[VMIN] = 0;
-    // serial_port_settings.c_cc[VTIME] = 0;
-    retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
-    if (retval < 0)
-    {
-        perror("tcsetattr");
-        printf("Failed to set serial settings\n");
-        exit(-1);
-    }
-
+    // retval = tcgetattr(serial_fd, &serial_port_settings);
+    // if (retval < 0)
+    // {
+    // perror("tcgetattr");
+    // printf("Failed to get serial settings\n");
+    // exit(-1);
+    // }
+    //
+    // retval = cfsetospeed(&serial_port_settings, B9600);
+    // if (retval < 0)
+    // {
+    // perror("cfsetospeed");
+    // printf("Failed to set 9600 output baud rate\n");
+    // exit(-1);
+    // }
+    // retval = cfsetispeed(&serial_port_settings, B9600);
+    // if (retval < 0)
+    // {
+    // perror("cftispeed");
+    // printf("Failed to set 9600 input baud rate\n");
+    // exit(-1);
+    // }
+    // serial_port_settings.c_lflag &= ~(ICANON);
+    // serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
+    serial_port_settings.c_cc[VMIN] = 0;
+    serial_port_settings.c_cc[VTIME] = 0;
+    // retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
+    // if (retval < 0)
+    // {
+    // perror("tcsetattr");
+    // printf("Failed to set serial settings\n");
+    // exit(-1);
+    // }
+    //
     client_size = sizeof(client);
     while (exitRequested == 0)
     {
@@ -270,14 +295,14 @@ int main(int argc, char *argv[])
             if (ret == 0)
             {
                 memset(tagBuf, 0, sizeof(tagBuf));
-                ioctl(serial_fd, FIONREAD, &bytes_av);
-                printf("Bytes: %lu\n", bytes_av);
-                usleep(50 * 1000L);
+                // ioctl(serial_fd, FIONREAD, &bytes_av);
+                // printf("Bytes: %lu\n", bytes_av);
+                // usleep(50 * 1000L);
 
                 if (bytes_av >= 14)
                 {
-                    retval = read(serial_fd, tagBuf, sizeof(tagBuf));
-                    if (retval > 0)
+                    retval = readBytesFromSerial(serial_fd, tagBuf, 14);
+                    if (retval == 0)
                     {
                         // if (retval < sizeof(tagBuf))
                         // {
@@ -286,7 +311,7 @@ int main(int argc, char *argv[])
                         //     retval = read(serial_fd, tagBuf + retval, sizeof(tagBuf) - retval);
                         //     printf("retval: %i\n", retval);
                         // }
-                        // tcflush(serial_fd, TCIOFLUSH);
+                        tcflush(serial_fd, TCIOFLUSH);
                         tagBuf[11] = '\n';
                         char temp[] = "Tag received: ";
                         write(conn_fd, temp, strlen(temp));
@@ -330,4 +355,6 @@ int main(int argc, char *argv[])
             }
         }
     }
+    close(socket_fd);
+    close(serial_fd);
 }
