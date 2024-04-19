@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    serial_fd = open("/dev/ttyAMA0", O_RDWR);
+    serial_fd = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_SYNC);
     if (serial_fd < 0)
     {
         perror("open");
@@ -208,7 +208,6 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    // setting baud rate to B38400
     retval = cfsetospeed(&serial_port_settings, B9600);
     if (retval < 0)
     {
@@ -223,7 +222,7 @@ int main(int argc, char *argv[])
         printf("Failed to set 9600 input baud rate\n");
         exit(-1);
     }
-    serial_port_settings.c_lflag |= ICANON;
+    serial_port_settings.c_lflag &= ~(ICANON);
     serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
     serial_port_settings.c_cc[VMIN] = 0;
     serial_port_settings.c_cc[VTIME] = 3;
