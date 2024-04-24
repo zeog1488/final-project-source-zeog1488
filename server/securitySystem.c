@@ -86,23 +86,20 @@ int readBytesFromSerial(const int fd, void *const buffer, size_t const bytes)
     char *const tail = (char *)buffer + bytes;
     int saved_errno;
     ssize_t n;
+    int ret_bytes = 0;
 
     saved_errno = errno;
 
-    while (head < tail)
+    do
     {
-
         n = read(fd, head, (size_t)(tail - head));
         if (n > (ssize_t)0)
             head += n;
-        else if (n != (ssize_t)-1)
-            return errno = ENOENT;
-        else if (errno != EINTR)
-            return errno;
-    }
+        ret_bytes += (int)n;
+    } while (n > 0 && head < tail);
 
     errno = saved_errno;
-    return 0;
+    return ret_bytes;
 }
 
 int main(int argc, char *argv[])
@@ -296,13 +293,13 @@ int main(int argc, char *argv[])
             if (ret == 0)
             {
                 memset(tagBuf, 0, sizeof(tagBuf));
-                retval = read(serial_fd, tagBuf, 14);
+                retval = readBytesFromSerial(serial_fd, tagBuf, sizeof(tagBuf));
                 if (retval > 0)
                 {
-                    tagBuf[11] = '\n';
+                    tagBuf[15] = 0;
                     char temp[] = "Tag received: ";
                     write(conn_fd, temp, strlen(temp));
-                    write(conn_fd, tagBuf + 3, 8);
+                    write(conn_fd, tagBuf, strlen(tagBuf));
                 }
                 continue;
             }
