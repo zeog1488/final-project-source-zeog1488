@@ -21,6 +21,7 @@
 
 #define PORT 9000
 #define START_LEN 128
+#define CRTSCTS 020000000000
 
 volatile sig_atomic_t exitRequested = 0;
 
@@ -219,7 +220,7 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    serial_fd = open("/dev/ttyAMA0", O_RDWR);
+    serial_fd = open("/dev/ttyUSB0", O_RDWR | O_NOCTTY | O_SYNC);
     if (serial_fd < 0)
     {
         perror("open");
@@ -227,40 +228,40 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    // retval = tcgetattr(serial_fd, &serial_port_settings);
-    // if (retval < 0)
-    // {
-    // perror("tcgetattr");
-    // printf("Failed to get serial settings\n");
-    // exit(-1);
-    // }
-    //
-    // retval = cfsetospeed(&serial_port_settings, B9600);
-    // if (retval < 0)
-    // {
-    // perror("cfsetospeed");
-    // printf("Failed to set 9600 output baud rate\n");
-    // exit(-1);
-    // }
-    // retval = cfsetispeed(&serial_port_settings, B9600);
-    // if (retval < 0)
-    // {
-    // perror("cftispeed");
-    // printf("Failed to set 9600 input baud rate\n");
-    // exit(-1);
-    // }
-    // serial_port_settings.c_lflag &= ~(ICANON);
-    // serial_port_settings.c_lflag &= ~(ECHO | ECHOE);
-    // serial_port_settings.c_cc[VMIN] = 0;
-    // serial_port_settings.c_cc[VTIME] = 0;
-    // retval = tcsetattr(serial_fd, TCSANOW, &serial_port_settings);
-    // if (retval < 0)
-    // {
-    // perror("tcsetattr");
-    // printf("Failed to set serial settings\n");
-    // exit(-1);
-    // }
-    //
+    struct termios tty;
+    if (tcgetattr(serial_fd, &tty) != 0)
+    {
+        perror("tcgetattr");
+        return -1;
+    }
+
+    cfsetospeed(&tty, B9600);
+    cfsetispeed(&tty, B9600);
+
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8; // 8-bit chars
+    // disable IGNBRK for mismatched speed tests; otherwise receive break
+    // as \000 chars
+    tty.c_iflag &= ~IGNBRK; // disable break processing
+    tty.c_lflag = 0;        // no signaling chars, no echo,
+                            // no canonical processing
+    tty.c_oflag = 0;        // no remapping, no delays
+    tty.c_cc[VMIN] = 0;     // read doesn't block
+    tty.c_cc[VTIME] = 5;    // 0.5 seconds read timeout
+
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY); // shut off xon/xoff ctrl
+
+    tty.c_cflag |= (CLOCAL | CREAD);   // ignore modem controls,
+                                       // enable reading
+    tty.c_cflag &= ~(PARENB | PARODD); // shut off parity
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_cflag &= ~CRTSCTS;
+
+    if (tcsetattr(serial_fd, TCSANOW, &tty) != 0)
+    {
+        perror("tcsetattr");
+        exit(-1);
+    }
+
     client_size = sizeof(client);
     while (exitRequested == 0)
     {
@@ -295,29 +296,14 @@ int main(int argc, char *argv[])
             if (ret == 0)
             {
                 memset(tagBuf, 0, sizeof(tagBuf));
-                // ioctl(serial_fd, FIONREAD, &bytes_av);
-                // printf("Bytes: %lu\n", bytes_av);
-                // usleep(50 * 1000L);
-
-                // if (bytes_av >= 14)
-                // {
-                retval = readBytesFromSerial(serial_fd, tagBuf, 14);
-                if (retval == 0)
+                retval = read(serial_fd, tagBuf, 14);
+                if (retval > 0)
                 {
-                    // if (retval < sizeof(tagBuf))
-                    // {
-                    //     printf("Here\n");
-                    //     printf("retval: %i\n", retval);
-                    //     retval = read(serial_fd, tagBuf + retval, sizeof(tagBuf) - retval);
-                    //     printf("retval: %i\n", retval);
-                    // }
-                    tcflush(serial_fd, TCIOFLUSH);
                     tagBuf[11] = '\n';
                     char temp[] = "Tag received: ";
                     write(conn_fd, temp, strlen(temp));
                     write(conn_fd, tagBuf + 3, 8);
                 }
-                // }
                 continue;
             }
             else if (ret == -1)
