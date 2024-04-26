@@ -24,6 +24,7 @@
 #define CRTSCTS 020000000000
 
 volatile sig_atomic_t exitRequested = 0;
+FILE *fp = NULL;
 
 static void sigint_handler(int signo)
 {
@@ -102,6 +103,113 @@ int readBytesFromSerial(const int fd, void *const buffer, size_t const bytes)
     return ret_bytes;
 }
 
+void writeCurrentTime()
+{
+    char time_str[16];
+    time_t t;
+    struct tm *wallTime;
+
+    memset(time_str, 0, sizeof(time_str));
+    t = time(NULL);
+    wallTime = localtime(&t);
+    strftime(time_str, sizeof(time_str), "%Y%m%d%H%M%S", wallTime);
+    time_str[14] = '\n';
+    fwrite(time_str, strlen(time_str), 1, fp);
+}
+
+char *verifyAccess(char *tagToCheck)
+{
+    long fileSize;
+    char *fileBuf = NULL;
+    char tagBuf[13];
+    char *tail, *pos, *retBuf, *nextPos;
+    size_t retSize;
+
+    fseek(fp, 0, SEEK_END);
+    fileSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (fileSize == 0)
+    {
+        return NULL;
+    }
+
+    fileBuf = (char *)malloc(fileSize + 1);
+    memset(fileBuf, 0, fileSize + 1);
+    fread(fileBuf, sizeof(char), fileSize, fp);
+
+    pos = fileBuf;
+    tail = fileBuf + strlen(fileBuf) + 1;
+    do
+    {
+        memcpy(tagBuf, pos, 12);
+        if (strcmp(tagBuf, tagToCheck) == 0)
+        {
+            nextPos = strchr(fileBuf, '\n');
+            nextPos++;
+            retSize = (nextPos - pos) + 1;
+            retBuf = (char *)malloc(retSize);
+            memset(retBuf, 0, retSize);
+            memcpy(retBuf, pos, retSize - 1);
+            free(fileBuf);
+            return retBuf;
+        }
+        pos = strchr(pos, '\n');
+        pos++;
+    } while (pos < tail);
+    free(fileBuf);
+    return NULL;
+}
+
+bool deleteTag(char *tagToCheck)
+{
+    long fileSize;
+    char *fileBuf = NULL;
+    int dataLen, tempLen;
+    char tagBuf[13];
+    char *tail, *pos, *temp;
+
+    fseek(fp, 0, SEEK_END);
+    fileSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (fileSize == 0)
+    {
+        return NULL;
+    }
+
+    fileBuf = (char *)malloc(fileSize + 1);
+    memset(fileBuf, 0, fileSize + 1);
+    fread(fileBuf, sizeof(char), fileSize, fp);
+
+    pos = fileBuf;
+    tail = fileBuf + strlen(fileBuf) + 1;
+    dataLen = strlen(fileBuf);
+    do
+    {
+        memcpy(tagBuf, pos, 12);
+        if (strcmp(tagBuf, tagToCheck) == 0)
+        {
+            temp = strchr(pos, '\n');
+            tempLen = strlen(temp + 1);
+            memcpy(pos, temp + 1, tempLen);
+            fclose(fp);
+            remove("/var/lib/securitySystem/tagDB");
+            fp = fopen("/var/lib/securitySystem/tagDB", "a+");
+            if ((size_t)dataLen - (size_t)(temp - pos + 1) == 0)
+            {
+                return false;
+            }
+            fwrite(fileBuf, sizeof(char), (size_t)dataLen - (size_t)(temp - pos + 1), fp);
+            free(fileBuf);
+            return true;
+        }
+        pos = strchr(pos, '\n');
+        pos++;
+    } while (pos < tail);
+    free(fileBuf);
+    return false;
+}
+
 int main(int argc, char *argv[])
 {
     int socket_fd;
@@ -114,9 +222,7 @@ int main(int argc, char *argv[])
     pid_t pid;
     int serial_fd;
     char tagBuf[16];
-    struct termios serial_port_settings;
     int retval;
-    unsigned long bytes_av;
 
     struct timeval ts;
     ts.tv_sec = 0;
@@ -125,6 +231,7 @@ int main(int argc, char *argv[])
     char *cmdBuffer = NULL;
     int cmdBufferLen = START_LEN;
     int ret;
+    char *retBuf;
 
     if (argc == 2)
     {
@@ -229,6 +336,7 @@ int main(int argc, char *argv[])
     if (tcgetattr(serial_fd, &tty) != 0)
     {
         perror("tcgetattr");
+        close(serial_fd);
         return -1;
     }
 
@@ -256,6 +364,15 @@ int main(int argc, char *argv[])
     if (tcsetattr(serial_fd, TCSANOW, &tty) != 0)
     {
         perror("tcsetattr");
+        close(serial_fd);
+        exit(-1);
+    }
+
+    fp = fopen("/var/lib/securitySystem/tagDB", "a+");
+    if (!fp)
+    {
+        perror("fopen");
+        close(serial_fd);
         exit(-1);
     }
 
@@ -271,6 +388,8 @@ int main(int argc, char *argv[])
             }
             perror("accept");
             printf("Accept failed\n");
+            close(serial_fd);
+            fclose(fp);
             exit(-1);
         }
 
@@ -283,6 +402,8 @@ int main(int argc, char *argv[])
         {
             perror("malloc");
             printf("buffer malloc failed\n");
+            close(serial_fd);
+            fclose(fp);
             exit(-1);
         }
 
@@ -296,16 +417,38 @@ int main(int argc, char *argv[])
                 retval = readBytesFromSerial(serial_fd, tagBuf, sizeof(tagBuf));
                 if (retval > 0)
                 {
-                    tagBuf[15] = 0;
-                    char temp[] = "Tag received: ";
-                    write(conn_fd, temp, strlen(temp));
-                    write(conn_fd, tagBuf, strlen(tagBuf));
+                    tagBuf[12] = 0;
+                    retBuf = verifyAccess(tagBuf + 1);
+                    if (retBuf)
+                    {
+                        char temp[] = "Access Granted. Welcome!\n";
+                        write(conn_fd, temp, strlen(temp));
+                        char temp2[] = "Data: ";
+                        char temp3[] = "Last Modified: ";
+
+                        char *firstPos = strchr(retBuf, ',') + 1;
+                        *(firstPos - 1) = '\n';
+                        char *secondPos = strchr(firstPos, ',') + 1;
+
+                        write(conn_fd, temp2, sizeof(temp2));
+                        write(conn_fd, firstPos, (size_t)(secondPos - firstPos));
+                        write(conn_fd, temp3, sizeof(temp3));
+                        write(conn_fd, secondPos, strlen(secondPos));
+                        free(retBuf);
+                    }
+                    else
+                    {
+                        char temp[] = "Access Denied.\n";
+                        write(conn_fd, temp, strlen(temp));
+                    }
                 }
                 continue;
             }
             else if (ret == -1)
             {
                 free(cmdBuffer);
+                close(serial_fd);
+                fclose(fp);
                 exit(-1);
             }
             else if (ret == -2)
@@ -317,13 +460,65 @@ int main(int argc, char *argv[])
                 cmdBufferLen = ret;
                 if (strcmp(cmdBuffer, "ADD\n") == 0)
                 {
-                    char temp[] = "Add tag command received\n";
+                    char temp[] = "Scan tag to add.\n";
                     write(conn_fd, temp, strlen(temp));
+                    memset(tagBuf, 0, 16);
+                    while (exitRequested == 0 && strlen(tagBuf) == 0)
+                    {
+                        retval = readBytesFromSerial(serial_fd, tagBuf, sizeof(tagBuf));
+                    }
+                    if (strlen(tagBuf) != 0)
+                    {
+                        tagBuf[12] = 0;
+                        retBuf = (tagBuf + 1);
+                        if (!retBuf)
+                        {
+                            char temp2[] = "Enter Name.\n";
+                            write(conn_fd, temp2, strlen(temp2));
+                            char *nameBuffer = (char *)malloc(START_LEN);
+                            ret = readFromSocket(conn_fd, nameBuffer, START_LEN);
+                            tagBuf[12] = ',';
+                            *(nameBuffer + strlen(nameBuffer)) = ',';
+                            fseek(fp, 0, SEEK_END);
+                            fwrite(tagBuf + 1, sizeof(char), 13, fp);
+                            fwrite(nameBuffer, sizeof(char), strlen(nameBuffer), fp);
+                            writeCurrentTime(fp);
+                            char temp3[] = "New tag added successfully.\n";
+                            write(conn_fd, temp3, strlen(temp3));
+                            free(nameBuffer);
+                        }
+                        else
+                        {
+                            free(retBuf);
+                            char temp2[] = "Tag already in system. Use MODIFY to edit an existing tag.\n";
+                            write(conn_fd, temp2, strlen(temp2));
+                        }
+                    }
                 }
                 else if (strcmp(cmdBuffer, "DELETE\n") == 0)
                 {
-                    char temp[] = "Delete tag command received\n";
+                    char temp[] = "Scan tag to delete.\n";
                     write(conn_fd, temp, strlen(temp));
+                    memset(tagBuf, 0, 16);
+                    while (exitRequested == 0 && strlen(tagBuf) == 0)
+                    {
+                        retval = readBytesFromSerial(serial_fd, tagBuf, sizeof(tagBuf));
+                    }
+                    if (strlen(tagBuf) != 0)
+                    {
+                        tagBuf[12] = 0;
+                        retBuf = (tagBuf + 1);
+                        if (retBuf)
+                        {
+                            free(retBuf);
+                            deleteTag(tagBuf + 1);
+                        }
+                        else
+                        {
+                            char temp2[] = "Tag not in system. Cannot Delete.\n";
+                            write(conn_fd, temp2, strlen(temp2));
+                        }
+                    }
                 }
                 else if (strcmp(cmdBuffer, "EDIT\n") == 0)
                 {
@@ -340,4 +535,5 @@ int main(int argc, char *argv[])
     }
     close(socket_fd);
     close(serial_fd);
+    fclose(fp);
 }
