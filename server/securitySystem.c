@@ -148,6 +148,7 @@ char *verifyAccess(char *tagToCheck)
 
     pos = fileBuf;
     tail = fileBuf + strlen(fileBuf) + 1;
+    printf("%s", fileBuf);
     do
     {
         memcpy(tagBuf, pos, 12);
