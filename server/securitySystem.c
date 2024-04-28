@@ -150,12 +150,9 @@ char *verifyAccess(char *tagToCheck)
 
     pos = fileBuf;
     tail = fileBuf + strlen(fileBuf) + 1;
-    printf("%s\n", fileBuf);
     do
     {
         memcpy(tagBuf, pos, 12);
-        printf("tagBuf: %s\n", tagBuf);
-        printf("tagToCheck: %s\n", tagToCheck);
         if (strcmp(tagBuf, tagToCheck) == 0)
         {
             nextPos = strchr(pos, '\n');
