@@ -22,6 +22,7 @@
 #define PORT 9000
 #define START_LEN 128
 #define CRTSCTS 020000000000
+#define DB_FILE "/var/lib/securitySystem/tagDB"
 
 volatile sig_atomic_t exitRequested = 0;
 FILE *fp = NULL;
@@ -105,16 +106,16 @@ int readBytesFromSerial(const int fd, void *const buffer, size_t const bytes)
 
 void writeCurrentTime()
 {
-    char time_str[16];
+    char time_str[18];
     time_t t;
     struct tm *wallTime;
 
     memset(time_str, 0, sizeof(time_str));
     t = time(NULL);
     wallTime = localtime(&t);
-    strftime(time_str, sizeof(time_str), "%Y%m%d%H%M%S", wallTime);
-    time_str[14] = '\n';
-    fwrite(time_str, strlen(time_str), 1, fp);
+    strftime(time_str, sizeof(time_str), "%x %X", wallTime);
+    time_str[17] = '\n';
+    fwrite(time_str, sizeof(char), 18, fp);
 }
 
 char *verifyAccess(char *tagToCheck)
@@ -124,6 +125,13 @@ char *verifyAccess(char *tagToCheck)
     char tagBuf[13];
     char *tail, *pos, *retBuf, *nextPos;
     size_t retSize;
+
+    fp = fopen(DB_FILE, "a+");
+    if (!fp)
+    {
+        perror("fopen");
+        return NULL;
+    }
 
     fseek(fp, 0, SEEK_END);
     fileSize = ftell(fp);
@@ -145,19 +153,21 @@ char *verifyAccess(char *tagToCheck)
         memcpy(tagBuf, pos, 12);
         if (strcmp(tagBuf, tagToCheck) == 0)
         {
-            nextPos = strchr(fileBuf, '\n');
+            nextPos = strchr(pos, '\n');
             nextPos++;
             retSize = (nextPos - pos) + 1;
             retBuf = (char *)malloc(retSize);
             memset(retBuf, 0, retSize);
             memcpy(retBuf, pos, retSize - 1);
             free(fileBuf);
+            fclose(fp);
             return retBuf;
         }
         pos = strchr(pos, '\n');
         pos++;
-    } while (pos < tail);
+    } while (pos < tail && *pos != 0);
     free(fileBuf);
+    fclose(fp);
     return NULL;
 }
 
@@ -168,6 +178,13 @@ bool deleteTag(char *tagToCheck)
     int dataLen, tempLen;
     char tagBuf[13];
     char *tail, *pos, *temp;
+
+    fp = fopen(DB_FILE, "a+");
+    if (!fp)
+    {
+        perror("fopen");
+        return false;
+    }
 
     fseek(fp, 0, SEEK_END);
     fileSize = ftell(fp);
@@ -201,12 +218,75 @@ bool deleteTag(char *tagToCheck)
             }
             fwrite(fileBuf, sizeof(char), (size_t)dataLen - (size_t)(temp - pos + 1), fp);
             free(fileBuf);
+            fclose(fp);
             return true;
         }
         pos = strchr(pos, '\n');
         pos++;
     } while (pos < tail);
     free(fileBuf);
+    fclose(fp);
+    return false;
+}
+
+bool modifyTag(char *tagToCheck, char *newData)
+{
+    long fileSize;
+    char *fileBuf = NULL;
+    int dataLen, tempLen;
+    char tagBuf[13];
+    char *tail, *pos, *temp;
+
+    fp = fopen(DB_FILE, "a+");
+    if (!fp)
+    {
+        perror("fopen");
+        return false;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    fileSize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (fileSize == 0)
+    {
+        return NULL;
+    }
+
+    fileBuf = (char *)malloc(fileSize + 1);
+    memset(fileBuf, 0, fileSize + 1);
+    fread(fileBuf, sizeof(char), fileSize, fp);
+
+    pos = fileBuf;
+    tail = fileBuf + strlen(fileBuf) + 1;
+    dataLen = strlen(fileBuf);
+    do
+    {
+        memcpy(tagBuf, pos, 12);
+        if (strcmp(tagBuf, tagToCheck) == 0)
+        {
+            temp = strchr(pos, '\n');
+            tempLen = strlen(temp + 1);
+            memcpy(pos, temp + 1, tempLen);
+            fclose(fp);
+            remove("/var/lib/securitySystem/tagDB");
+            fp = fopen("/var/lib/securitySystem/tagDB", "a+");
+            if ((size_t)dataLen - (size_t)(temp - pos + 1) != 0)
+            {
+                fwrite(fileBuf, sizeof(char), (size_t)dataLen - (size_t)(temp - pos + 1), fp);
+            }
+            tagBuf[12] = ',';
+            fwrite(tagBuf, sizeof(char), 13, fp);
+            fwrite(newData, sizeof(char), strlen(newData), fp);
+            writeCurrentTime(fp);
+            free(fileBuf);
+            fclose(fp);
+            return true;
+        }
+        pos = strchr(pos, '\n');
+        pos++;
+    } while (pos < tail);
+    free(fileBuf);
+    fclose(fp);
     return false;
 }
 
@@ -368,14 +448,6 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    fp = fopen("/var/lib/securitySystem/tagDB", "a+");
-    if (!fp)
-    {
-        perror("fopen");
-        close(serial_fd);
-        exit(-1);
-    }
-
     client_size = sizeof(client);
     while (exitRequested == 0)
     {
@@ -389,7 +461,6 @@ int main(int argc, char *argv[])
             perror("accept");
             printf("Accept failed\n");
             close(serial_fd);
-            fclose(fp);
             exit(-1);
         }
 
@@ -403,7 +474,6 @@ int main(int argc, char *argv[])
             perror("malloc");
             printf("buffer malloc failed\n");
             close(serial_fd);
-            fclose(fp);
             exit(-1);
         }
 
@@ -417,7 +487,7 @@ int main(int argc, char *argv[])
                 retval = readBytesFromSerial(serial_fd, tagBuf, sizeof(tagBuf));
                 if (retval > 0)
                 {
-                    tagBuf[12] = 0;
+                    tagBuf[13] = 0;
                     retBuf = verifyAccess(tagBuf + 1);
                     if (retBuf)
                     {
@@ -427,13 +497,22 @@ int main(int argc, char *argv[])
                         char temp3[] = "Last Modified: ";
 
                         char *firstPos = strchr(retBuf, ',') + 1;
-                        *(firstPos - 1) = '\n';
                         char *secondPos = strchr(firstPos, ',') + 1;
+                        *(secondPos - 1) = '\n';
 
+                        fp = fopen(DB_FILE, "a+");
+                        if (!fp)
+                        {
+                            perror("fopen");
+                            close(serial_fd);
+                            close(conn_fd);
+                            exit(-1);
+                        }
                         write(conn_fd, temp2, sizeof(temp2));
                         write(conn_fd, firstPos, (size_t)(secondPos - firstPos));
                         write(conn_fd, temp3, sizeof(temp3));
                         write(conn_fd, secondPos, strlen(secondPos));
+                        fclose(fp);
                         free(retBuf);
                     }
                     else
@@ -469,20 +548,37 @@ int main(int argc, char *argv[])
                     }
                     if (strlen(tagBuf) != 0)
                     {
-                        tagBuf[12] = 0;
-                        retBuf = (tagBuf + 1);
+                        tagBuf[13] = 0;
+                        retBuf = verifyAccess(tagBuf + 1);
                         if (!retBuf)
                         {
-                            char temp2[] = "Enter Name.\n";
+                            char temp2[] = "Enter Name:\n";
                             write(conn_fd, temp2, strlen(temp2));
                             char *nameBuffer = (char *)malloc(START_LEN);
-                            ret = readFromSocket(conn_fd, nameBuffer, START_LEN);
-                            tagBuf[12] = ',';
-                            *(nameBuffer + strlen(nameBuffer)) = ',';
+                            memset(nameBuffer, 0, START_LEN);
+                            do
+                            {
+                                ret = readFromSocket(conn_fd, nameBuffer, START_LEN);
+                                if (ret < 0)
+                                {
+                                    break;
+                                }
+                            } while (ret == 0);
+                            tagBuf[13] = ',';
+                            *(nameBuffer + strlen(nameBuffer) - 1) = ',';
+                            fp = fopen(DB_FILE, "a+");
+                            if (!fp)
+                            {
+                                perror("fopen");
+                                close(serial_fd);
+                                close(conn_fd);
+                                exit(-1);
+                            }
                             fseek(fp, 0, SEEK_END);
                             fwrite(tagBuf + 1, sizeof(char), 13, fp);
                             fwrite(nameBuffer, sizeof(char), strlen(nameBuffer), fp);
                             writeCurrentTime(fp);
+                            fclose(fp);
                             char temp3[] = "New tag added successfully.\n";
                             write(conn_fd, temp3, strlen(temp3));
                             free(nameBuffer);
@@ -506,12 +602,14 @@ int main(int argc, char *argv[])
                     }
                     if (strlen(tagBuf) != 0)
                     {
-                        tagBuf[12] = 0;
-                        retBuf = (tagBuf + 1);
+                        tagBuf[13] = 0;
+                        retBuf = verifyAccess(tagBuf + 1);
                         if (retBuf)
                         {
                             free(retBuf);
                             deleteTag(tagBuf + 1);
+                            char temp2[] = "Tag successfully Deleted.\n";
+                            write(conn_fd, temp2, strlen(temp2));
                         }
                         else
                         {
@@ -522,8 +620,54 @@ int main(int argc, char *argv[])
                 }
                 else if (strcmp(cmdBuffer, "EDIT\n") == 0)
                 {
-                    char temp[] = "Edit tag command received\n";
+                    char temp[] = "Scan tag to modify.\n";
                     write(conn_fd, temp, strlen(temp));
+                    memset(tagBuf, 0, 16);
+                    while (exitRequested == 0 && strlen(tagBuf) == 0)
+                    {
+                        retval = readBytesFromSerial(serial_fd, tagBuf, sizeof(tagBuf));
+                    }
+                    if (strlen(tagBuf) != 0)
+                    {
+                        tagBuf[13] = 0;
+                        retBuf = verifyAccess(tagBuf + 1);
+                        if (retBuf)
+                        {
+                            char temp2[] = "Enter New Name:\n";
+                            write(conn_fd, temp2, strlen(temp2));
+                            char *nameBuffer = (char *)malloc(START_LEN);
+                            memset(nameBuffer, 0, START_LEN);
+                            do
+                            {
+                                ret = readFromSocket(conn_fd, nameBuffer, START_LEN);
+                                if (ret < 0)
+                                {
+                                    break;
+                                }
+                            } while (ret == 0);
+                            *(nameBuffer + strlen(nameBuffer) - 1) = ',';
+                            modifyTag(tagBuf + 1, nameBuffer);
+                            fp = fopen(DB_FILE, "a+");
+                            if (!fp)
+                            {
+                                perror("fopen");
+                                close(serial_fd);
+                                close(conn_fd);
+                                exit(-1);
+                            }
+
+                            fclose(fp);
+                            char temp3[] = "Existing tag modified successfully.\n";
+                            write(conn_fd, temp3, strlen(temp3));
+                            free(nameBuffer);
+                        }
+                        else
+                        {
+                            free(retBuf);
+                            char temp2[] = "Tag not in system. Use ADD for a new tag.\n";
+                            write(conn_fd, temp2, strlen(temp2));
+                        }
+                    }
                 }
                 else
                 {
@@ -535,5 +679,4 @@ int main(int argc, char *argv[])
     }
     close(socket_fd);
     close(serial_fd);
-    fclose(fp);
 }

@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "ioctl.h": "c",
+        "termios.h": "c",
+        "ttydefaults.h": "c"
+    }
+}
