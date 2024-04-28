@@ -126,6 +126,8 @@ char *verifyAccess(char *tagToCheck)
     char *tail, *pos, *retBuf, *nextPos;
     size_t retSize;
 
+    memset(tagBuf, 0, sizeof(tagBuf));
+
     fp = fopen(DB_FILE, "a+");
     if (!fp)
     {
@@ -153,7 +155,7 @@ char *verifyAccess(char *tagToCheck)
     {
         memcpy(tagBuf, pos, 12);
         printf("tagBuf: %s\n", tagBuf);
-        printf("tagToCheck: %s", tagToCheck);
+        printf("tagToCheck: %s\n", tagToCheck);
         if (strcmp(tagBuf, tagToCheck) == 0)
         {
             nextPos = strchr(pos, '\n');
@@ -181,6 +183,8 @@ bool deleteTag(char *tagToCheck)
     int dataLen, tempLen;
     char tagBuf[13];
     char *tail, *pos, *temp;
+
+    memset(tagBuf, 0, sizeof(tagBuf));
 
     fp = fopen(DB_FILE, "a+");
     if (!fp)
@@ -239,6 +243,8 @@ bool modifyTag(char *tagToCheck, char *newData)
     int dataLen, tempLen;
     char tagBuf[13];
     char *tail, *pos, *temp;
+
+    memset(tagBuf, 0, sizeof(tagBuf));
 
     fp = fopen(DB_FILE, "a+");
     if (!fp)
